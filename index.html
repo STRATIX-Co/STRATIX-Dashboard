@@ -15,6 +15,8 @@
     --muted: #9a9a9e;
     --accent: #6ea8ff;
     --ok: #4ade80;
+    --warn: #f3a94e;
+    --danger: #f66a6a;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -25,6 +27,8 @@
       --muted: #6b6b70;
       --accent: #2563eb;
       --ok: #16a34a;
+      --warn: #b45309;
+      --danger: #dc2626;
     }
   }
   * { box-sizing: border-box; }
@@ -73,6 +77,32 @@
   footer { font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 1rem; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
+
+  /* --- items / unlock section --- */
+  .unlock-row { display: flex; gap: 8px; }
+  .unlock-row input {
+    flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.55rem 0.7rem; color: var(--text); font-size: 0.9rem;
+  }
+  .unlock-row button, .item-actions button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 0.55rem 0.9rem; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  }
+  .unlock-row button:hover, .item-actions button:hover { opacity: 0.9; }
+  .muted-note { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+  .item-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem; margin-bottom: 10px;
+  }
+  .item-card .item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+  .item-card .desc { font-size: 0.95rem; font-weight: 500; }
+  .item-card .rec { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+  .item-card .ctx { font-size: 0.8rem; color: var(--muted); margin-top: 4px; font-style: italic; }
+  .item-actions { display: flex; gap: 8px; margin-top: 0.75rem; flex-wrap: wrap; }
+  .item-actions .set-aside { background: var(--warn); }
+  .item-actions .reject { background: var(--danger); }
+  .empty-note, .error-note { font-size: 0.9rem; color: var(--muted); }
+  .error-note { color: var(--danger); }
 </style>
 </head>
 <body>
@@ -81,14 +111,26 @@
     <h1>STRATIX status</h1>
     <span class="status-pill">Alfred is running</span>
   </header>
-  <p class="updated" id="updated">Last updated — check timestamp below</p>
+  <p class="updated" id="updated">Last updated â€” check timestamp below</p>
 
   <div class="grid">
     <div class="stat"><div class="label">Automations live</div><div class="value">5</div></div>
-    <div class="stat"><div class="label">Completed today</div><div class="value" id="completed-count">—</div></div>
-    <div class="stat"><div class="label">Awaiting review</div><div class="value" id="review-count">—</div></div>
-    <div class="stat"><div class="label">Flagged for Austin</div><div class="value" id="flagged-count">—</div></div>
+    <div class="stat"><div class="label">Completed today</div><div class="value" id="completed-count">â€”</div></div>
+    <div class="stat"><div class="label">Awaiting review</div><div class="value" id="review-count">â€”</div></div>
+    <div class="stat"><div class="label">Flagged for Austin</div><div class="value" id="flagged-count">â€”</div></div>
   </div>
+
+  <section id="items-section">
+    <h2>Needs your attention</h2>
+    <div id="unlock-box">
+      <div class="unlock-row">
+        <input type="password" id="secret-input" placeholder="Enter your dashboard secret">
+        <button id="unlock-btn">Unlock</button>
+      </div>
+      <p class="muted-note">Real findings and approvals only load after you unlock this page. Nothing sensitive lives in this public site.</p>
+    </div>
+    <div id="items-list" style="display:none;"></div>
+  </section>
 
   <section>
     <h2>Scheduled systems</h2>
@@ -102,22 +144,131 @@
   </section>
 
   <footer>
-    This page is intentionally generic — no client, deal, or financial detail is published here.
-    Full detail lives in the Alfred vault and chat. This is a status pulse only, refreshed automatically.
+    This page is intentionally generic â€” no client, deal, or financial detail is published here.
+    Full detail loads only after you unlock it with your dashboard secret. This is a status pulse only, refreshed automatically.
   </footer>
 </main>
 <script>
+  var WORKER_BASE = 'https://stratix-mainframe.austin-164.workers.dev';
+  var SECRET_KEY = 'stratix_dashboard_secret';
+
   fetch('data.json?t=' + Date.now())
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      document.getElementById('updated').textContent = 'Last updated — ' + d.updated;
+      document.getElementById('updated').textContent = 'Last updated â€” ' + d.updated;
       document.getElementById('completed-count').textContent = d.completed;
       document.getElementById('review-count').textContent = d.review;
       document.getElementById('flagged-count').textContent = d.flagged;
     })
     .catch(function () {
-      document.getElementById('updated').textContent = 'Last updated — unavailable';
+      document.getElementById('updated').textContent = 'Last updated â€” unavailable';
     });
+
+  var unlockBox = document.getElementById('unlock-box');
+  var itemsList = document.getElementById('items-list');
+  var secretInput = document.getElementById('secret-input');
+
+  function getSecret() { return localStorage.getItem(SECRET_KEY); }
+  function setSecret(v) { localStorage.setItem(SECRET_KEY, v); }
+  function clearSecret() { localStorage.removeItem(SECRET_KEY); }
+
+  function renderItems(items) {
+    itemsList.innerHTML = '';
+    if (!items.length) {
+      itemsList.innerHTML = '<p class="empty-note">Nothing needs your attention right now.</p>';
+      return;
+    }
+    items.forEach(function (item) {
+      var card = document.createElement('div');
+      card.className = 'item-card';
+
+      var top = document.createElement('div');
+      top.className = 'item-top';
+      var desc = document.createElement('div');
+      desc.className = 'desc';
+      desc.textContent = item.description;
+      var tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = item.category;
+      top.appendChild(desc);
+      top.appendChild(tag);
+      card.appendChild(top);
+
+      if (item.recommendation) {
+        var rec = document.createElement('div');
+        rec.className = 'rec';
+        rec.textContent = 'Recommendation: ' + item.recommendation;
+        card.appendChild(rec);
+      }
+      if (item.context) {
+        var ctx = document.createElement('div');
+        ctx.className = 'ctx';
+        ctx.textContent = item.context;
+        card.appendChild(ctx);
+      }
+
+      var actions = document.createElement('div');
+      actions.className = 'item-actions';
+      [
+        { label: 'Approve', status: 'approved', cls: '' },
+        { label: 'Set Aside', status: 'set_aside', cls: 'set-aside' },
+        { label: 'Reject', status: 'rejected', cls: 'reject' },
+      ].forEach(function (a) {
+        var btn = document.createElement('button');
+        if (a.cls) btn.className = a.cls;
+        btn.textContent = a.label;
+        btn.onclick = function () { respond(item.id, a.status, card); };
+        actions.appendChild(btn);
+      });
+      card.appendChild(actions);
+      itemsList.appendChild(card);
+    });
+  }
+
+  function loadItems() {
+    var secret = getSecret();
+    if (!secret) return;
+    fetch(WORKER_BASE + '/items', { headers: { 'X-Dashboard-Secret': secret } })
+      .then(function (r) {
+        if (r.status === 401) { clearSecret(); throw new Error('unauthorized'); }
+        return r.json();
+      })
+      .then(function (d) {
+        unlockBox.style.display = 'none';
+        itemsList.style.display = 'block';
+        renderItems(d.items);
+      })
+      .catch(function () {
+        unlockBox.style.display = 'block';
+        itemsList.style.display = 'none';
+        unlockBox.querySelector('.muted-note').textContent = 'That secret was rejected â€” try again.';
+        unlockBox.querySelector('.muted-note').className = 'error-note';
+      });
+  }
+
+  function respond(id, status, cardEl) {
+    var secret = getSecret();
+    fetch(WORKER_BASE + '/respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Dashboard-Secret': secret },
+      body: JSON.stringify({ id: id, status: status }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) { cardEl.remove(); }
+        else { alert('Action failed: ' + d.error); }
+      })
+      .catch(function () { alert('Network error â€” try again.'); });
+  }
+
+  document.getElementById('unlock-btn').addEventListener('click', function () {
+    var v = secretInput.value.trim();
+    if (!v) return;
+    setSecret(v);
+    loadItems();
+  });
+
+  if (getSecret()) { loadItems(); }
 </script>
 </body>
 </html>
