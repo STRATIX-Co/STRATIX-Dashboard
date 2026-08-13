@@ -1,0 +1,10 @@
+[
+  {
+    "id": "b5c70825-0299-4111-b890-485eeebd131c",
+    "taskId": "test-1",
+    "action": "approve",
+    "label": "Alfred end-to-end test",
+    "requestedAt": "2026-08-13T04:30:31.814Z",
+    "status": "queued"
+  }
+]
